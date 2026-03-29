@@ -21,7 +21,6 @@
         const tg = window.Telegram.WebApp;
         tg.expand();
 
-        // Узнаем текущую атаку из ссылки (передает бот)
         const urlParams = new URLSearchParams(window.location.search);
         let currentPhase = parseInt(urlParams.get('phase')) || 1;
         
@@ -36,10 +35,9 @@
         let obstacles = [];
         let blasters = [];
         let gameActive = true;
-        let timeLeft = currentPhase >= 18 ? 20 : 10; // На 18 атаке выживать дольше!
+        let timeLeft = currentPhase >= 18 ? 20 : 10;
         let frames = 0;
 
-        // Рисуем Душу Решимости
         function drawHeart(x, y, size) {
             ctx.fillStyle = player.color;
             ctx.beginPath();
@@ -52,21 +50,18 @@
             ctx.fill();
         }
 
-        // Управление пальцем (душа следует за пальцем)
         window.addEventListener('touchmove', (e) => {
             if (!gameActive) return;
             let touch = e.touches[0];
             player.x = touch.clientX;
-            player.y = touch.clientY - 40; // Смещение, чтобы палец не закрывал душу
+            player.y = touch.clientY - 40; 
             
-            // Ограничения экрана
             if (player.x < player.size/2) player.x = player.size/2;
             if (player.x > canvas.width - player.size/2) player.x = canvas.width - player.size/2;
             if (player.y < player.size/2) player.y = player.size/2;
             if (player.y > canvas.height - player.size/2) player.y = canvas.height - player.size/2;
         });
 
-        // Создание костей
         function spawnBone() {
             let width = 15;
             let height = 40 + Math.random() * 80;
@@ -75,7 +70,6 @@
             obstacles.push({ x: x, y: -100, width: width, height: height, speed: speed });
         }
 
-        // Создание Гастер-Бластера
         function spawnBlaster(homing = false) {
             let size = 50;
             let targetX = homing ? player.x : Math.random() * canvas.width;
@@ -103,60 +97,50 @@
             frames++;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Логика появления врагов от фазы
-            let boneRate = currentPhase >= 18 ? 10 : Math.max(10, 30 - currentPhase);
-            if (frames % boneRate === 0) spawnBone();
+            // ФИКС: Убираем кости на 11 атаке
+            let spawnBones = true;
+            if (currentPhase === 11) spawnBones = false;
+
+            if (spawnBones) {
+                let boneRate = currentPhase >= 18 ? 10 : Math.max(10, 30 - currentPhase);
+                if (frames % boneRate === 0) spawnBone();
+            }
 
             if (currentPhase >= 6 && frames % 100 === 0) spawnBlaster(false);
-            if (currentPhase >= 11 && frames % 80 === 0) spawnBlaster(true); // Самонаводящиеся
-            if (currentPhase >= 18 && frames % 40 === 0) spawnBlaster(true); // Ад 18 фазы
+            if (currentPhase >= 11 && frames % 80 === 0) spawnBlaster(true);
+            if (currentPhase >= 18 && frames % 40 === 0) spawnBlaster(true);
 
-            // Отрисовка Бластеров
             for (let i = blasters.length - 1; i >= 0; i--) {
                 let b = blasters[i];
                 b.timer--;
-                
                 ctx.fillStyle = 'white';
-                // Голова бластера (простой квадрат)
                 ctx.fillRect(b.x, b.y, b.width, b.height);
                 
                 if (b.timer <= 0) {
                     b.fired = true;
-                    // Луч
                     ctx.fillStyle = 'cyan';
                     ctx.fillRect(b.x + 10, b.y + b.height, b.width - 20, canvas.height);
-                    
-                    // Проверка попадания луча
-                    if (player.x > b.x && player.x < b.x + b.width) {
-                        endGame("lose");
-                    }
+                    if (player.x > b.x && player.x < b.x + b.width) endGame("lose");
                 }
-                if (b.timer < -20) blasters.splice(i, 1); // Удаляем после выстрела
+                if (b.timer < -20) blasters.splice(i, 1);
             }
 
-            // Отрисовка Костей
             ctx.fillStyle = 'white';
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 let obs = obstacles[i];
                 obs.y += obs.speed;
-                
-                // Рисуем кость (скругленный прямоугольник)
                 ctx.beginPath();
                 ctx.roundRect(obs.x, obs.y, obs.width, obs.height, 10);
                 ctx.fill();
 
-                // Проверка столкновения
                 if (player.x > obs.x && player.x < obs.x + obs.width &&
                     player.y > obs.y && player.y < obs.y + obs.height) {
                     endGame("lose");
                 }
-                
                 if (obs.y > canvas.height) obstacles.splice(i, 1);
             }
 
-            // Игрок
             drawHeart(player.x, player.y, player.size);
-
             requestAnimationFrame(update);
         }
         update();
