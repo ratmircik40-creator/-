@@ -7,40 +7,79 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body { margin: 0; padding: 0; background-color: black; overflow: hidden; touch-action: none; }
-        canvas { display: block; margin: 0 auto; background: black; border: 2px solid white; box-sizing: border-box; }
+        canvas { display: block; background: black; border: 2px solid white; box-sizing: border-box; }
         #timer { position: absolute; top: 10px; left: 10px; color: white; font-family: monospace; font-size: 20px; font-weight: bold; }
+        #phase-display { position: absolute; top: 10px; right: 10px; color: red; font-family: monospace; font-size: 16px; font-weight: bold; }
     </style>
 </head>
 <body>
     <div id="timer">Время: 10</div>
+    <div id="phase-display"></div>
     <canvas id="gameCanvas"></canvas>
 
     <script>
         const tg = window.Telegram.WebApp;
         tg.expand();
 
+        // Узнаем текущую атаку из ссылки (передает бот)
+        const urlParams = new URLSearchParams(window.location.search);
+        let currentPhase = parseInt(urlParams.get('phase')) || 1;
+        
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         canvas.width = window.innerWidth;
         canvas.height = window.innerHeight;
 
-        let player = { x: canvas.width / 2 - 15, y: canvas.height - 60, size: 30, color: 'red' };
+        document.getElementById('phase-display').innerText = "Атака: " + currentPhase;
+
+        let player = { x: canvas.width / 2, y: canvas.height - 100, size: 20, color: '#ff0000' };
         let obstacles = [];
+        let blasters = [];
         let gameActive = true;
-        let timeLeft = 10;
-        
-        window.addEventListener('touchstart', (e) => {
-            let touchX = e.touches[0].clientX;
-            if (touchX < canvas.width / 2) player.x -= 40;
-            else player.x += 40;
-            if (player.x < 0) player.x = 0;
-            if (player.x + player.size > canvas.width) player.x = canvas.width - player.size;
+        let timeLeft = currentPhase >= 18 ? 20 : 10; // На 18 атаке выживать дольше!
+        let frames = 0;
+
+        // Рисуем Душу Решимости
+        function drawHeart(x, y, size) {
+            ctx.fillStyle = player.color;
+            ctx.beginPath();
+            let topCurveHeight = size * 0.3;
+            ctx.moveTo(x, y + topCurveHeight);
+            ctx.bezierCurveTo(x, y, x - size / 2, y, x - size / 2, y + topCurveHeight);
+            ctx.bezierCurveTo(x - size / 2, y + size / 2, x, y + size * 0.8, x, y + size);
+            ctx.bezierCurveTo(x, y + size * 0.8, x + size / 2, y + size / 2, x + size / 2, y + topCurveHeight);
+            ctx.bezierCurveTo(x + size / 2, y, x, y, x, y + topCurveHeight);
+            ctx.fill();
+        }
+
+        // Управление пальцем (душа следует за пальцем)
+        window.addEventListener('touchmove', (e) => {
+            if (!gameActive) return;
+            let touch = e.touches[0];
+            player.x = touch.clientX;
+            player.y = touch.clientY - 40; // Смещение, чтобы палец не закрывал душу
+            
+            // Ограничения экрана
+            if (player.x < player.size/2) player.x = player.size/2;
+            if (player.x > canvas.width - player.size/2) player.x = canvas.width - player.size/2;
+            if (player.y < player.size/2) player.y = player.size/2;
+            if (player.y > canvas.height - player.size/2) player.y = canvas.height - player.size/2;
         });
 
-        function spawnObstacle() {
-            let size = 40 + Math.random() * 60;
-            let x = Math.random() * (canvas.width - size);
-            obstacles.push({ x: x, y: -50, width: size, height: 20, speed: 5 + Math.random() * 5 });
+        // Создание костей
+        function spawnBone() {
+            let width = 15;
+            let height = 40 + Math.random() * 80;
+            let x = Math.random() * (canvas.width - width);
+            let speed = 5 + (currentPhase * 0.5) + Math.random() * 5;
+            obstacles.push({ x: x, y: -100, width: width, height: height, speed: speed });
+        }
+
+        // Создание Гастер-Бластера
+        function spawnBlaster(homing = false) {
+            let size = 50;
+            let targetX = homing ? player.x : Math.random() * canvas.width;
+            blasters.push({ x: targetX - size/2, y: 20, width: size, height: size, timer: 60, fired: false });
         }
 
         let timerInterval = setInterval(() => {
@@ -50,34 +89,74 @@
             if (timeLeft <= 0) endGame("win");
         }, 1000);
 
-        setInterval(spawnObstacle, 400);
-
         function endGame(result) {
             gameActive = false;
             clearInterval(timerInterval);
-            tg.sendData(result); 
+            ctx.fillStyle = result === "win" ? "green" : "red";
+            ctx.globalAlpha = 0.5;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            setTimeout(() => tg.sendData(result), 500);
         }
 
         function update() {
             if (!gameActive) return;
+            frames++;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            ctx.fillStyle = player.color;
-            ctx.fillRect(player.x, player.y, player.size, player.size);
+            // Логика появления врагов от фазы
+            let boneRate = currentPhase >= 18 ? 10 : Math.max(10, 30 - currentPhase);
+            if (frames % boneRate === 0) spawnBone();
 
+            if (currentPhase >= 6 && frames % 100 === 0) spawnBlaster(false);
+            if (currentPhase >= 11 && frames % 80 === 0) spawnBlaster(true); // Самонаводящиеся
+            if (currentPhase >= 18 && frames % 40 === 0) spawnBlaster(true); // Ад 18 фазы
+
+            // Отрисовка Бластеров
+            for (let i = blasters.length - 1; i >= 0; i--) {
+                let b = blasters[i];
+                b.timer--;
+                
+                ctx.fillStyle = 'white';
+                // Голова бластера (простой квадрат)
+                ctx.fillRect(b.x, b.y, b.width, b.height);
+                
+                if (b.timer <= 0) {
+                    b.fired = true;
+                    // Луч
+                    ctx.fillStyle = 'cyan';
+                    ctx.fillRect(b.x + 10, b.y + b.height, b.width - 20, canvas.height);
+                    
+                    // Проверка попадания луча
+                    if (player.x > b.x && player.x < b.x + b.width) {
+                        endGame("lose");
+                    }
+                }
+                if (b.timer < -20) blasters.splice(i, 1); // Удаляем после выстрела
+            }
+
+            // Отрисовка Костей
             ctx.fillStyle = 'white';
-            for (let i = 0; i < obstacles.length; i++) {
+            for (let i = obstacles.length - 1; i >= 0; i--) {
                 let obs = obstacles[i];
                 obs.y += obs.speed;
-                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                
+                // Рисуем кость (скругленный прямоугольник)
+                ctx.beginPath();
+                ctx.roundRect(obs.x, obs.y, obs.width, obs.height, 10);
+                ctx.fill();
 
-                if (player.x < obs.x + obs.width &&
-                    player.x + player.size > obs.x &&
-                    player.y < obs.y + obs.height &&
-                    player.y + player.size > obs.y) {
+                // Проверка столкновения
+                if (player.x > obs.x && player.x < obs.x + obs.width &&
+                    player.y > obs.y && player.y < obs.y + obs.height) {
                     endGame("lose");
                 }
+                
+                if (obs.y > canvas.height) obstacles.splice(i, 1);
             }
+
+            // Игрок
+            drawHeart(player.x, player.y, player.size);
+
             requestAnimationFrame(update);
         }
         update();
